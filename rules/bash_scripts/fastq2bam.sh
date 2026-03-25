@@ -24,7 +24,7 @@ singularity exec --cleanenv \
             --read-group-lb lib1 \
             --read-group-pl ILLUMINA \
             --read-group-id-prefix ${snakemake_wildcards[SAMPLE]} \
-            --memory-limit 48 \
+            --memory-limit 36 \
             --tmp-dir $SAMTOOLS_TMPDIR \
             --bwa-options="-K 10000000" \
             --bwa-nstreams 2 \

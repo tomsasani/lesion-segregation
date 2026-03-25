@@ -1,11 +1,10 @@
 rule run_deepsomatic:
     input:
-        tumor = "data/bam/{SAMPLE}.bam",
-        tumor_idx = "data/bam/{SAMPLE}.bam.bai",
-        normal = lambda wildcards: f"data/bam/{SAMPLE2NORMAL[wildcards.SAMPLE]}.bam",
-        normal_idx = lambda wildcards: f"data/bam/{SAMPLE2NORMAL[wildcards.SAMPLE]}.bam.bai",
-        ref = "data/ref/ce11.fa",
-        # ref_idx = "data/ref/ce11.fa.gz.fai",
+        tumor = "data/cram/{SAMPLE}.{FILETYPE}",
+        tumor_idx = "data/cram/{SAMPLE}.{FILETYPE}.txt",
+        normal = "data/cram/CD0001b.cram",
+        normal_idx = "data/cram/CD0001b.cram.txt",
+        ref = "data/ref/ce10.renamed.fa",
         sif = "clara-parabricks_4.6.0-1.sif"
     output:
         vcf = "data/vcf/{SAMPLE}.vcf.gz",

@@ -1,8 +1,21 @@
+rule index_ref:
+    input:
+        "data/ref/ce11.fa.gz"
+    output:
+        "data/ref/ce11.fa.gz.bwt"
+    shell:
+        """
+        module load bwa
+        
+        bwa index {input}
+        """
+
 rule fastq2bam_parabricks:
     input:
         reference = "data/ref/ce11.fa.gz",
-        fq1 = "data/fq/{SAMPLE}_1.fq.gz",
-        fq2 = "data/fq/{SAMPLE}_2.fq.gz",
+        reference_meta = "data/ref/ce11.fa.gz.bwt",
+        fq1 = "data/fastq/{SAMPLE}_1.fastq.gz",
+        fq2 = "data/fastq/{SAMPLE}_2.fastq.gz",
         sif = "clara-parabricks_4.6.0-1.sif",
     output:
         bam = "data/bam/{SAMPLE}.bam"
