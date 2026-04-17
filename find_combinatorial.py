@@ -50,11 +50,14 @@ mutations = pd.read_csv("csv/mutations/combined.ce10.tsv", sep="\t")
 
 res = []
 for sample, sample_df in tqdm.tqdm(mutations.groupby("sample")):
-    try:
+
+    if os.path.exists(f"data/cram/{sample}.cram"):
         samfile = pysam.AlignmentFile(f"data/cram/{sample}.cram", "rc")
-    except:
-        continue
+    elif os.path.exists(f"data/cram/{sample}.bam"):
+        samfile = pysam.AlignmentFile(f"data/cram/{sample}.bam", "rb")
+    else: continue
     # except FileNotFoundError:
+    #     continue
     #     samfile = pysam.AlignmentFile(f"data/cram/{sample}.bam", "rb")
 
     for chrom, chrom_df in sample_df.groupby("chrom"):

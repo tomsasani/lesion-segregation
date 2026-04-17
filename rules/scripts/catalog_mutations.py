@@ -7,17 +7,19 @@ from mutyper import Ancestor
 from bx.intervals.intersection import Interval, IntervalTree
 from collections import defaultdict
 import csv
+import gzip
+
 
 from snakemake.script import snakemake
 
 plt.rc("font", size=12)
 
 
-ancestor = Ancestor(
-    snakemake.input.ref,
-    k=3,
-    sequence_always_upper=True,
-)
+# ancestor = Ancestor(
+#     snakemake.input.ref,
+#     k=3,
+#     sequence_always_upper=True,
+# )
 
 
 metadata = pd.read_excel(
@@ -34,31 +36,52 @@ res = []
 vcf = VCF(snakemake.input.vcf, gts012=True)
 
 exclude_tree = defaultdict(IntervalTree)
-with open(snakemake.input.exclude, "rt") as infh:
+with gzip.open(snakemake.input.exclude, "rt") as infh:
     csvf = csv.reader(infh, delimiter="\t")
     for i, l in enumerate(csvf):
         if i == 0:
-            header = l
-            continue
+            header = ["chrom", "start", "end", "annot", "a", "strand"]
+            
         d = dict(zip(header, l))
-        exclude_tree[d["genoName"]].insert_interval(Interval(int(d["genoStart"]), int(d["genoEnd"])))
+        exclude_tree[d["chrom"]].insert_interval(Interval(int(d["start"]), int(d["end"])))
 
 
 # loop over VCF for this sample
 
 for v in vcf:
 
-    if len(exclude_tree[f"chr{v.CHROM}"].find(v.start, v.end)) > 0:
-        continue
-    
-    ref, alt = v.REF, v.ALT[0]
-    af = v.format("PM")[1][0]
+    if v.FILTER not in ("PASS", None): continue
 
-    kmer = ancestor.mutation_type(f"chr{v.CHROM}", v.start, ref, alt)
-    if None in kmer: 
-        print ('Error!')
+    if len(exclude_tree[v.CHROM].find(v.start, v.end)) > 0:
         continue
-    kmer = ">".join(kmer)
+
+    ref = v.REF
+    # NOTE: by counting each site twice at multi-alelics, am i double counting?
+    passes = False
+    afs = []
+    for alt_i, alt in enumerate(v.ALT):
+
+        if len(alt) > 1: continue
+        af = v.format("PM")[1][0]
+        afs.append(af)
+        # print (af)
+        # if af < 0.2: continue
+
+        # dp = v.format("DP")[0][0]
+        # if not 15 <= dp <= 150: continue
+
+        # ad = v.format("AD")[0][alt_i + 1]
+        # if ad < 5: continue
+
+        passes = True
+
+    if not passes: continue
+    # just pick one alt for the purposes of logging
+    # kmer = ancestor.mutation_type(v.CHROM, v.start, ref, alt)
+    # if None in kmer:
+    #     print('Error!')
+    #     continue
+    # kmer = ">".join(kmer)
 
     res.append(
         {
@@ -66,7 +89,8 @@ for v in vcf:
             "start": v.start,
             "end": v.end,
             "ref": ref,
-            "af": af,
+            "alt": ":".join(v.ALT),
+            "af": max(afs),
             "sample": snakemake.wildcards.SAMPLE,
             "genotype": sample_metadata["Genotype"].unique()[0],
             "mutagen": sample_metadata["Mutagen"].unique()[0],

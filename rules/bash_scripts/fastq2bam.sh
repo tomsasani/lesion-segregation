@@ -27,5 +27,5 @@ singularity exec --cleanenv \
             --memory-limit 36 \
             --tmp-dir $SAMTOOLS_TMPDIR \
             --bwa-options="-K 10000000" \
-            --bwa-nstreams 2 \
+            --bwa-nstreams 1 \
             --bwa-cpu-thread-pool 4

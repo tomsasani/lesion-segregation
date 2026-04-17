@@ -6,14 +6,14 @@ retries: 0
 
 # CLUSTER BEHAVIOR
 executor: slurm
-jobs: 8
+jobs: 16
 
 
 
 default-resources:
-  slurm_account: "quinlan-rw"
-  slurm_partition: "quinlan-rw"
-  slurm_extra: "--exclude=rw160"
+  slurm_account: "ucgd-rw"
+  slurm_partition: "ucgd-rw"
+  slurm_extra: "--exclude=rw045,rw046,rw047,rw048"
   runtime: 60
   mem_mb: 8000
   disk_mb: 8000
