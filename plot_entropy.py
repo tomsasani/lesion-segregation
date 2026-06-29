@@ -8,43 +8,51 @@ import scipy.stats as ss
 import matplotlib.pyplot as plt
 import seaborn as sns
 import logomaker
+import itertools
 
 plt.rc("font", size=13)
 plt.rcParams["font.family"] = "sans-serif"
 plt.rcParams["font.sans-serif"] = ["Liberation Sans"]
 
 
+K = 21
+
+
 def calc_entropy(r):
+    # remove central nucleotide
+    center = K // 2
+    r = r[:center] + r[center + 1 :]
     counts = Counter(r.upper())
     probabilities = np.array(list(counts.values())) / len(r)
     shannon_entropy = ss.entropy(probabilities, base=2)
     return shannon_entropy
 
 
-K = 21
 ancestor = Ancestor(
-    "data/ref/ce10.renamed.fa",
+    "data/ref/ce11.fa.gz",
     sequence_always_upper=True,
     k=K,
 )
 
+N_PERM = 250
+
 THRESHOLD = 3
-res = []
-for fh in tqdm.tqdm(glob.glob("csv/multiallelics/*.100.tsv")):
+multiallelics = []
+regular = []
+for fh in tqdm.tqdm(glob.glob(f"csv/multiallelics/*.{N_PERM}.by_bam.tsv")):
     try:
         df = pd.read_csv(fh, sep="\t")
     except pd.errors.EmptyDataError:
         continue
     df["is_multiallelic"] = df["ma_reads"] >= THRESHOLD
-    df = df[(df["mutagen"] == "EMS") & (df["permuted"] == 0)]
-    res.append(df)
-res = pd.concat(res).fillna("N:0")
+    multiallelics.append(df[df["is_multiallelic"]])
+    regular.append(df[(~df["is_multiallelic"]) & (df["permuted"] == 0)])
+multiallelics = pd.concat(multiallelics).fillna("N:0")
+regular = pd.concat(regular).fillna("N:0")
+# res = res[res["mutagen"].isin(["EMS", "DMS", "MMS"])]
 
 
-res["depth"] = res["summary"].apply(lambda s: sum([int(_s.split(":")[1]) for _s in s.split("|")]))
-
-res = res[res["depth"].between(15, 150)]
-
+res = pd.concat([multiallelics, regular])
 
 muts = []
 for i, row in tqdm.tqdm(res.iterrows()):
@@ -56,12 +64,13 @@ for i, row in tqdm.tqdm(res.iterrows()):
             continue
 
         mutation = ancestor.mutation_type(
-            row["chrom"],
+            f'chr{row["chrom"]}',
             row["start"],
             ref,
             alt,
         )
-        if None in mutation: continue
+        if None in mutation:
+            continue
         refseq = list(mutation[0])
         d = row.to_dict()
         d.update(
@@ -74,45 +83,64 @@ for i, row in tqdm.tqdm(res.iterrows()):
 
 muts = pd.DataFrame(muts)
 
+
 muts["entropy"] = muts["refseq"].apply(lambda r: calc_entropy(r))
 
-muts["empirical"] = muts["permuted"] == 0
+muts["category"] = muts.apply(lambda row: "MAV (random)" if (row["is_multiallelic"] and row["permuted"] > 0) else "MAV (empirical)" if (row["is_multiallelic"] and row["permuted"] == 0) else "SNV (biallelic)", axis=1)
 
+print (muts[muts["category"] == "MAV (random)"].groupby(["chrom", "start", "end"]).size().sort_values())
 
-bins = np.arange(0.5, 2, 0.05)
-entropy = np.zeros((2, 100, bins.shape[0] - 1))
+print (muts.groupby("category").size())
 
-# bs = []
-# for t in range(100):
-#     _muts = muts.sample(frac=1, replace=True)
-#     for i in range(2):
-#         if i == 0:
-#             hist, edges = np.histogram(_muts[_muts["empirical"]]["entropy"].values, bins=bins)
-#         else:
-#             hist, edges = np.histogram(_muts[~_muts["empirical"]]["entropy"].values, bins=bins)
+bins = np.arange(muts["entropy"].min(), 2, 0.05)
+entropy = np.zeros((3, 100, bins.shape[0] - 1))
 
-#         hist_fracs = hist / np.sum(hist)
-#         entropy[i, t, :] = np.cumsum(hist_fracs)
+categories = ["MAV (empirical)", "SNV (biallelic)", "MAV (random)"]
+bs = []
+for t in range(100):
+    _muts = muts.sample(frac=1, replace=True)
+    for cat_i, cat in enumerate((categories)):
+        vals = _muts[_muts["category"] == cat]["entropy"].values
+        hist, edges = np.histogram(vals, bins=bins)
+        hist_fracs = hist / np.sum(hist)
+        entropy[cat_i, t, :] = np.cumsum(hist_fracs)
 
-# f, ax = plt.subplots()
-# for i in range(2):
-#     v = entropy[i]
-#     lo, hi = np.percentile(v, 2.5, axis=0), np.percentile(v, 97.5, axis=0)
-#     mean = np.mean(v, axis=0)
-#     ax.plot(bins[:-1], mean, label="empirical" if i == 0 else "random")
-#     ax.fill_between(bins[:-1], lo, hi, alpha=0.1)
+cat2ct = muts.groupby("category").size().to_dict()
+palette = sns.color_palette("colorblind", len(cat2ct))
+f, ax = plt.subplots()
+for cat_i, cat in enumerate(categories):
+    v = entropy[cat_i]
+    lo, hi = np.percentile(v, 2.5, axis=0), np.percentile(v, 97.5, axis=0)
+    mean = np.mean(v, axis=0)
+    ax.plot(bins[:-1], mean, label=f"{cat} (n = {cat2ct[cat]:,})", color=palette[cat_i])
+    ax.fill_between(bins[:-1], lo, hi, alpha=0.1, color=palette[cat_i])
 
-# ax.set_xlabel("\nShannon entropy of nucleotide sequence +/- 10bp from MAV\n" + "lower " + r"$\leftarrow$" + " complexity " + r"$\rightarrow$" + " higher")
-# ax.set_ylabel("Cumulative fraction of MAVs (+/- 95% CI)")
-# ax.legend(title="MAV source", frameon=True, shadow=True, fancybox=True)
-# sns.despine(ax=ax)
-# f.tight_layout()
-# f.savefig('entropy.png', dpi=200)
+for cat1, cat2 in itertools.combinations(categories, r=2):
+    vals1 = muts[muts["category"] == cat1]["entropy"].values
+    vals2 = muts[muts["category"] == cat2]["entropy"].values
+
+    print (cat1, cat2, ss.ks_2samp(vals1, vals2).pvalue)
+
+ax.set_xlabel(
+    "\nShannon entropy of nucleotide sequence +/- 10bp from MAV\n"
+    + "lower "
+    + r"$\leftarrow$"
+    + " complexity "
+    + r"$\rightarrow$"
+    + " higher"
+)
+ax.set_ylabel("Cumulative fraction of MAVs (+/- 95% CI)")
+ax.legend(title="Variant type", frameon=True, shadow=True, fancybox=True)
+sns.despine(ax=ax)
+f.tight_layout()
+f.savefig("entropy.png", dpi=200)
 
 f, (ax1, ax2) = plt.subplots(2, figsize=(6, 8), sharex=True, sharey=True)
-seqs = muts[(muts["is_multiallelic"]) & (muts["empirical"])]["refseq"].to_list()
+seqs = muts[muts["category"] == "MAV (empirical)"]["refseq"].to_list()
 
-matrix = logomaker.transform_matrix(logomaker.alignment_to_matrix(seqs), from_type="counts", to_type="probability")
+matrix = logomaker.transform_matrix(
+    logomaker.alignment_to_matrix(seqs), from_type="counts", to_type="probability"
+)
 logomaker.Logo(
     matrix,
     fade_probabilities=True,
@@ -122,9 +150,11 @@ logomaker.Logo(
     ax=ax1,
 )
 
-seqs = muts[(~muts["is_multiallelic"]) & (muts["empirical"])]["refseq"].to_list()
+seqs = muts[muts["category"] == "MAV (random)"]["refseq"].to_list()
 
-matrix = logomaker.transform_matrix(logomaker.alignment_to_matrix(seqs), from_type="counts", to_type="probability")
+matrix = logomaker.transform_matrix(
+    logomaker.alignment_to_matrix(seqs), from_type="counts", to_type="probability"
+)
 logomaker.Logo(
     matrix,
     fade_probabilities=True,

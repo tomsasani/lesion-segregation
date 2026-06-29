@@ -15,11 +15,11 @@ from snakemake.script import snakemake
 plt.rc("font", size=12)
 
 
-# ancestor = Ancestor(
-#     snakemake.input.ref,
-#     k=3,
-#     sequence_always_upper=True,
-# )
+ancestor = Ancestor(
+    snakemake.input.ref,
+    k=3,
+    sequence_always_upper=False,
+)
 
 
 metadata = pd.read_excel(
@@ -47,12 +47,12 @@ with gzip.open(snakemake.input.exclude, "rt") as infh:
 
 
 # loop over VCF for this sample
-
 for v in vcf:
 
     if v.FILTER not in ("PASS", None): continue
 
-    if len(exclude_tree[v.CHROM].find(v.start, v.end)) > 0:
+    if len(exclude_tree[f"chr{v.CHROM}"].find(v.start, v.end)) > 0:
+        # print ('exclude')
         continue
 
     ref = v.REF
@@ -64,24 +64,15 @@ for v in vcf:
         if len(alt) > 1: continue
         af = v.format("PM")[1][0]
         afs.append(af)
-        # print (af)
-        # if af < 0.2: continue
-
-        # dp = v.format("DP")[0][0]
-        # if not 15 <= dp <= 150: continue
-
-        # ad = v.format("AD")[0][alt_i + 1]
-        # if ad < 5: continue
-
+        
         passes = True
 
     if not passes: continue
     # just pick one alt for the purposes of logging
-    # kmer = ancestor.mutation_type(v.CHROM, v.start, ref, alt)
-    # if None in kmer:
-    #     print('Error!')
-    #     continue
-    # kmer = ">".join(kmer)
+    kmer = ancestor.mutation_type(f"chr{v.CHROM}", v.start, ref, alt)
+    if None in kmer:
+        continue
+    kmer = ">".join(kmer)
 
     res.append(
         {

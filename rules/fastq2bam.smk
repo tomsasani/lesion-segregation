@@ -12,6 +12,7 @@ rule index_ref:
         bwa index {input}
         """
 
+
 rule download_fastq:
     input:
     output: 
@@ -21,6 +22,7 @@ rule download_fastq:
         acc = lambda wildcards: SAMPLE2ACC[wildcards.SAMPLE],
     resources:
         runtime = 240,
+    priority: 80
     threads: 8
     shell:
         """
@@ -33,50 +35,104 @@ rule compress_fastq:
     input: "data/fastq/{SAMPLE}_{FQ}.fastq"
     output: temp("data/fastq/{SAMPLE}_{FQ}.fastq.gz")
     threads: 8
-    priority: 100
+    priority: 90
     resources:
-        runtime = 30
+        runtime = 30,
+
     shell:
         """
         bgzip --threads 8 {input}
         """
 
 
-rule fastq2bam_parabricks:
+rule clean_with_fastp:
     input:
-        reference = "data/ref/ce11.fa.gz",
-        reference_meta = "data/ref/ce11.fa.gz.bwt",
+        fastp_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/bin/fastp",
         fq1 = "data/fastq/{SAMPLE}_1.fastq.gz",
         fq2 = "data/fastq/{SAMPLE}_2.fastq.gz",
-        sif = "clara-parabricks_4.6.0-1.sif",
     output:
-        bam = "data/bam/{SAMPLE}.bam",
-        idx = "data/bam/{SAMPLE}.bam.bai"
-    priority: 100
+        fq1_clean = temp("data/fastq/{SAMPLE}.1.clean.fastq.gz"),
+        fq2_clean = temp("data/fastq/{SAMPLE}.2.clean.fastq.gz"),
+        fq1_unpaired = temp("data/fastq/{SAMPLE}.1.unpaired.fastq.gz"),
+        fq2_unpaired = temp("data/fastq/{SAMPLE}.2.unpaired.fastq.gz"),
+        html_report = "reports/{SAMPLE}-fastp-report.html",
+        json_report = "reports/{SAMPLE}-fastp-report.json"
+    threads: 4
     resources:
-        mem_mb = 64_000,
-        runtime = 30,
-        gpu = 1,
-        cpus_per_gpu = 64,
-        slurm_account = "quinlan-gpu-rw",
-        slurm_partition = "quinlan-gpu-rw",
-        slurm_extra = "--exclusive"
+        runtime = 30
+    log: "logs/fastp/{SAMPLE}.log"
+    shell:
+        """
+        {input.fastp_binary} --in1 {input.fq1} \
+                --in2 {input.fq2} \
+                --out1 {output.fq1_clean} \
+                --out2 {output.fq2_clean} \
+                --unpaired1 {output.fq1_unpaired} \
+                --unpaired2 {output.fq2_unpaired} \
+                --thread {threads} \
+                --html {output.html_report} \
+                --json {output.json_report} \
+                -V
+        """
+
+
+rule fastq2bam:
+    input:
+        reference = "data/ref/ce11.fa.gz",
+        fq1 = "data/fastq/{SAMPLE}.1.clean.fastq.gz",
+        fq2 = "data/fastq/{SAMPLE}.2.clean.fastq.gz",
+        fq1_unpaired = "data/fastq/{SAMPLE}.1.unpaired.fastq.gz",
+        fq2_unpaired = "data/fastq/{SAMPLE}.2.unpaired.fastq.gz",
+        bwa_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/src/bwa-mem2-2.3_x64-linux/bwa-mem2",
+    output:
+        bam = temp("data/bam/{SAMPLE}.bam"),
+    priority: 100
+    threads: 16
+    resources:
+        mem_mb = 32_000
+    params:
+        K = 96_000_000,
+        max_records_in_ram = 5_000_000,
+        read_group = lambda wildcards: f"@RG\\tID:{wildcards.SAMPLE}\\tLB:lib1\\tPL:ILLUMINA\\tSM:{wildcards.SAMPLE}\\tPU:{wildcards.SAMPLE}"
     script:
-        "bash_scripts/fastq2bam.sh"
+        "bash_scripts/align.sh"
 
 
-# rule index_bam:
-#     input:
-#         bam = "data/bam/{SAMPLE}.bam"
-#     output:
-#         idx = "data/bam/{SAMPLE}.bam.bai"
-#     threads: 8
-#     resources:
-#         mem_mb = 8_000,
-#         runtime = 10,
-#     shell:
-#         """
-#         module load samtools
-        
-#         samtools index -@ {threads} {input.bam}
-#         """
+rule mark_dups:
+    input:
+        bam = "data/bam/{SAMPLE}.bam"
+    output:
+        bam = temp("data/bam/{SAMPLE}.dupmarked.bam"),
+        metrics = "data/dupmetrics/{SAMPLE}.txt"
+    resources:
+        mem_mb = 32_000
+    shell:
+        """
+        module load gatk/4.6
+
+        gatk MarkDuplicates \
+            --java-options -Xmx24g \
+            -I {input.bam} \
+            -O {output.bam} \
+            -M {output.metrics}
+        """
+
+
+rule convert_to_cram:
+    input:
+       bam = "data/bam/{SAMPLE}.dupmarked.bam",
+       reference = "data/ref/ce11.fa.gz",
+    output:
+        cram = "data/cram/{SAMPLE}.cram"
+    threads: 8
+    shell:
+        """
+        module load samtools/1.16
+
+        samtools view -@ {threads} \
+                      -C \
+                      -o {output.cram} \
+                      -T {input.reference} \
+                      --output-fmt-option embed_ref=1 \
+                      {input.bam}
+        """
