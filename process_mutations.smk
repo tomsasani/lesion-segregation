@@ -13,18 +13,11 @@ SAMPLE2CRAM = dict(zip(manifest["Sample / DONOR ID"], manifest["aligned_ftp"]))
 
 
 SAMPLE2FILETYPE = dict(zip(manifest["Sample / DONOR ID"], manifest["filetype"]))
-# SAMPLE2FILETYPE["CD0048a"] = "bam"
-# SAMPLE2FILETYPE["CD0001b"] = "bam"
 
 # filter to relevant samples
 metadata = pd.read_excel("data/41467_2020_15912_MOESM4_ESM.xlsx", 
                          sheet_name="Sample_description", 
                          skiprows=1).fillna({"Normal": "CD0001b", "Mutagen": "none", "Drug.concentration": 0})
-
-# only consider samples with at least 2 replicates per treatment
-# metadata["treatment"] = metadata.apply(lambda row: f'{row["Genotype"]}_{row["Mutagen"]}', axis=1)
-# sample_per_treatment = metadata.groupby(["treatment"]).size().reset_index().rename(columns={0: "count"})
-# multi_treatments = sample_per_treatment.query("count > 1")["treatment"].to_list()
 
 ALL_SAMPLES = []
 for fh in glob.glob("data/Filtered_VCFS_recovered/SNV/*.vcf.gz"):
@@ -51,116 +44,75 @@ mutacc = metadata[metadata["Type"].str.contains("acc")]["Sample"].unique()
 # get mut. acc samples with relatively high counts
 SAMPLES_MA = raw_counts[raw_counts["Sample"].isin(mutacc)].query("total >= 25")["Sample"].to_list()
 
+SAMPLE2GT = dict(zip(metadata["Sample"], metadata["Genotype"]))
 
 configfile: 'config.yaml'
 mutagens = config["mutagens"]
-genotypes = metadata["Genotype"].unique()
 
 # filter to samples with drug concentration > 0
 metadata = metadata[metadata["Drug.concentration"] != 0]
 metadata = metadata[metadata["Mutagen"].isin(mutagens)]
-metadata = metadata[metadata["Genotype"].isin(genotypes)]
-
-# get genotoxin samples
-SAMPLES_GT = metadata["Sample"].to_list()
+metadata = metadata[metadata["Generation"] == 1]
 
 include: "rules/fastq2bam.smk"
 include: "rules/variant_calling.smk"
+include: "rules/test_index_hopping.smk"
 
 CHROMS = ["I", "II", "III", "IV", "V", "X"]
 CHROMS = [f"chr{c}" for c in CHROMS]
 
 wildcard_constraints:
     SAMPLE = r"CD\d{4,5}[a-s]",
-    # FILETYPE = f"bam|cram"
 
-SAMPLES = SAMPLES_GT # + SAMPLES_MA
-print (len(SAMPLES))
-# SAMPLES = [s for s,t in sample2treat.items() if t in multi_treatments]
-# manifest = pd.read_csv("data/combined_file_manifest.tsv", sep="\t")
-# smp2tech = dict(zip(manifest["Sample / DONOR ID"], manifest["experiment_title"]))
+SAMPLES = metadata["Sample"].to_list()
 
-# FILETYPES = [SAMPLE2FILETYPE[s] for s in SAMPLES]
-
-# existing = [fh.split("/")[-1].split(".")[0] for fh in glob.glob("data/cram/*.txt")]
-# SAMPLES = [s for s in SAMPLES if s in existing]
 
 rule all:
     input:
-        # "csv/mutations/combined.ce10.tsv"
-        # expand("csv/multiallelics/{SAMPLE}.{PERM}.tsv", SAMPLE=SAMPLES_GT, PERM=[11]),
-        expand("data/bam/{SAMPLE}.bam.bai", SAMPLE=SAMPLES[:500])
+       
+        expand("csv/multiallelics/{SAMPLE}.{PERM}.{STRATEGY}.tsv", SAMPLE=SAMPLES, PERM=[100], STRATEGY=["regular"]),
         
 
-rule download_cram:
+rule index_cram:
     input:
-    output: "data/cram/{SAMPLE}.{FILETYPE}"
-    params:
-        ftp = lambda wildcards: SAMPLE2CRAM[wildcards.SAMPLE],
-    resources:
-        runtime = 240,
-        slurm_extra = "--exclude=rw160,rw159,rw157,rw158"
-    shell:
-        """
-        wget -O {output} http://{params.ftp}
-        sleep 20
-        """
-
-
-rule index:
-    input:
-        bam = "data/cram/{SAMPLE}.{FILETYPE}"
+        cram = "data/cram/{SAMPLE}.cram"
     output:
-        meta = "data/cram/{SAMPLE}.{FILETYPE}.txt"
+        idx = "data/cram/{SAMPLE}.cram.crai"
     threads: 8
     resources:
         mem_mb = 8_000,
-        runtime = 20,
-        slurm_extra = "--exclude=rw160,rw159"
-
+        runtime = 10,
     shell:
         """
-        module load samtools
+        module load samtools/1.16
         
-        samtools index -@ {threads} {input.bam}
-        touch {output}
+        samtools index -@ {threads} {input.cram}
         """
 
-
-rule get_doubletons:
+rule run_mosdepth:
     input:
-        vcfs = expand("data/vcf/filtered/{SAMPLE}.vcf.gz", SAMPLE=SAMPLES),
-        idxs = expand("data/vcf/filtered/{SAMPLE}.vcf.gz.tbi", SAMPLE=SAMPLES)
-    output:
-        "data/vcf/merged/to_exclude.vcf.gz"
+        cram = "data/cram/{SAMPLE}.cram",
+        idx = "data/cram/{SAMPLE}.cram.crai",
+        ref = "data/ref/ce11.fa.gz"
     threads: 8
-    params: threshold = len(SAMPLES) - 2
+    output: "csv/mosdepth/{SAMPLE}.mosdepth.summary.txt"
+    params:
+        prefix = lambda wildcards: f"csv/mosdepth/{wildcards.SAMPLE}"
     shell:
         """
-        module load bcftools
-        
-        bcftools merge --threads {threads} {input.vcfs} | bcftools view -i 'N_MISSING <= {params.threshold}' -Oz -o {output}
+        mosdepth -t {threads} \
+                 -nx \
+                 -f {input.ref} \
+                 {params.prefix} \
+                 {input.cram}
         """
-
-
-rule remove_doubletons:
-    input:
-        exclude = "data/vcf/merged/to_exclude.vcf.gz",
-        vcf = "data/vcf/filtered/{SAMPLE}.vcf.gz"
-    output: "data/vcf/filtered/{SAMPLE}.filtered.vcf.gz"
-    shell:
-        """
-        module load bedtools
-
-        bedtools intersect -v -header -a {input.vcf} -b {input.exclude} | bgzip > {output}
-        """
-
 
 rule catalog_mutations:
     input:
         vcf = "data/Filtered_VCFS_recovered/SNV/{SAMPLE}_filtered_substitutions.vcf.gz",
         metadata = "data/41467_2020_15912_MOESM4_ESM.xlsx",
-        exclude = "data/ce11.rmsk.bed.gz"
+        exclude = "data/ce11.sdust.bed.gz",
+        ref = "data/ref/ce11.fa.gz"
     output:
         mutations = "csv/per-sample/{SAMPLE}.mutations.tsv"
     resources:
@@ -182,7 +134,7 @@ rule combine_mutations:
         res = []
         for fh in input.mutations:
             if os.path.getsize(fh) == 1: continue
-            df = pd.read_csv(fh, sep="\t")
+            df = pd.read_csv(fh, sep="\t").fillna({"dose": 0})
             res.append(df)
         res = pd.concat(res)
         res["ident"] = res.apply(lambda row: f"chr{row['chrom']}:{row['end']}-{row['end']}:{row['sample']}", axis=1)
@@ -191,86 +143,106 @@ rule combine_mutations:
         res.to_csv(output.mutations, sep="\t", index=False, header=True)
 
 
-rule liftover_mutations:
+rule plot_mutations:
     input:
-        mutations = "csv/mutations/combined.bed",
-        chain = "data/ce11ToCe10.over.chain.gz"
+        mutations = "csv/mutations/combined.tsv",
+        metadata = "data/41467_2020_15912_MOESM4_ESM.xlsx"
     output:
-        mutations = "csv/mutations/liftover.ce10.bed",
-        unmapped = "csv/mutations/unmapped.ce10.bed"
+        fig = "fig/mutation_counts.png"
+    script:
+        "rules/scripts/plot_mutation_counts.py"
+
+
+def get_downsampling_frac(wildcards):
+    df = pd.read_csv(f"data/mosdepth/{wildcards.SAMPLE}.mosdepth.summary.txt", sep="\t")
+    df = df[df["chrom"] == "total"]
+    dp = df["mean"].values[0]
+
+    adj = 30 / dp
+    if adj > 1:
+        adj = dp
+    return adj
+
+
+rule downsample:
+    input:
+        cram = "data/cram/{SAMPLE}.cram",
+        idx = "data/cram/{SAMPLE}.cram.crai",
+        ref = "data/ref/ce11.fa.gz",
+        depth = "data/mosdepth/{SAMPLE}.mosdepth.summary.txt"
+    output:
+        cram = "data/cram/downsampled/{SAMPLE}.cram",
+        idx = "data/cram/downsampled/{SAMPLE}.cram.crai"
+    params:
+        downsampling_frac = lambda wildcards: get_downsampling_frac(wildcards)
+    threads: 8
     shell:
         """
-        liftOver -preserveInput {input.mutations} {input.chain} {output.mutations} {output.unmapped}
+        module load samtools/1.16
+        
+        samtools view -O CRAM \
+                      --write-index \
+                      -C \
+                      -s {params.downsampling_frac} \
+                      -T {input.ref} \
+                      -@ {threads} \
+                      -o {output.cram} \
+                      {input.cram}
         """
-
-
-rule merge_mutations:
-    input:
-        mutations = "csv/mutations/liftover.ce10.bed",
-        old_mutations = "csv/mutations/combined.tsv"
-    output:
-        mutations = "csv/mutations/combined.ce10.tsv"
-    run:
-        import pandas as pd
-        old = pd.read_csv(input.old_mutations, sep="\t")
-        # old["ident"] = old.apply(lambda row: f"chr{row['chrom']}:{row['end']}-{row['end']}:{row['sample']}", axis=1)
-        old = old.drop(columns=["chrom", "start", "end"])
-        new = pd.read_csv(input.mutations, sep="\t", names=["chrom", "start", "end", "ident"])
-
-        print (new)
-        print (old)
-        new = new.merge(old, on="ident")
-        print (new)
-        new["chrom"] = new["chrom"].apply(lambda c: c.replace("chr", "CHROMOSOME_"))
-        new.to_csv(output.mutations, sep="\t", index=False)
-
 
 
 rule find_multiallelics:
     input:
-        mutations = "csv/mutations/combined.ce10.tsv",
-        # mutations = "csv/mutations/combined.tsv",
-        # bam = "data/bam/{SAMPLE}.bam",
-        # idx = "data/bam/{SAMPLE}.bam.bai"
-        bam = lambda wildcards: f"data/cram/{wildcards.SAMPLE}.{SAMPLE2FILETYPE[wildcards.SAMPLE]}",
-        meta = lambda wildcards: f"data/cram/{wildcards.SAMPLE}.{SAMPLE2FILETYPE[wildcards.SAMPLE]}.txt"
+        mutations = "csv/mutations/combined.tsv",
+        bam = lambda wildcards: f"data/cram/downsampled/{wildcards.SAMPLE}.cram" if wildcards.STRATEGY == "downsample" else f"data/cram/{wildcards.SAMPLE}.cram",
+        idx = lambda wildcards: f"data/cram/downsampled/{wildcards.SAMPLE}.cram.crai" if wildcards.STRATEGY == "downsample" else f"data/cram/{wildcards.SAMPLE}.cram.crai",
+        ctrl_bam = lambda wildcards: f"data/cram/{SAMPLE2NORMAL[wildcards.SAMPLE]}.cram",
+        ctrl_idx = lambda wildcards: f"data/cram/{SAMPLE2NORMAL[wildcards.SAMPLE]}.cram.crai"
     output:
-        mutations = "csv/multiallelics/{SAMPLE}.{PERM}.tsv"
+        mutations = "csv/multiallelics/{SAMPLE}.{PERM}.{STRATEGY}.tsv"
     params:
         plot = False,
-        shared_treatment = lambda wildcards: [k for k,v in sample2treat.items() if v == sample2treat[wildcards.SAMPLE]]
+        samples = lambda wildcards: [s for s in ALL_SAMPLES if SAMPLE2GT[s] != SAMPLE2GT[wildcards.SAMPLE]],
     resources:
         runtime = 20
     script:
         "rules/scripts/find_multiallelics.py"
 
 
-rule run_cnvkit:
+rule combine_multiallelics:
     input:
-        bam = "data/bam/{SAMPLE}.bam",
-        ctrl_bam = lambda wildcards: "data/bam/" + SAMPLE2NORMAL[wildcards.SAMPLE] + ".bam",
-        # reference = "cnvs/CD0001b.targetcoverage.cnn"
-    output: "cnvs/{SAMPLE}/{SAMPLE}.cnr"
-    threads: 4
-    resources:
-        runtime = 60
-    shell:
-        """
-        cnvkit.py batch {input.bam} \
-                        -m wgs \
-                        -f data/ref/ce11.fa \
-                        --segment-method none \
-                        -d cnvs/{wildcards.SAMPLE}/ \
-                        -n {input.ctrl_bam} \
-                        -p {threads}
-        """
+        mutations = expand("csv/multiallelics/{SAMPLE}.{{PERM}}.{{STRATEGY}}.tsv", SAMPLE=SAMPLES)
+    output: 
+        mutations = "csv/multiallelics.{PERM}.{STRATEGY}.tsv"
+    params:
+        threshold = 3
+    run:
+        import pandas as pd
 
-rule plot_cnvkit:
-    input: "cnvs/{SAMPLE}/{SAMPLE}.cnr"
-    output: "fig/cnvkit/{SAMPLE}.{CHROM}.pdf"
-    shell:
-        """
-        cnvkit.py scatter -c {wildcards.CHROM} \
-                          -o {output} \
-                          {input}
-        """
+        res = []
+        for fh in input.mutations:
+            try:
+                df = pd.read_csv(fh, sep="\t")
+            except (pd.errors.EmptyDataError, FileNotFoundError):
+                continue
+            df = df[df["ma_reads"] > 1]
+            df = df[df["permuted"] == 0]
+            df["is_multiallelic"] = df["ma_reads"] >= params.threshold
+            res.append(df)
+
+        res = pd.concat(res)
+        res.to_csv(output.mutations, sep="\t", index=False)
+
+
+rule test_index_hopping:
+    input:
+        mutations = "csv/multiallelics.{PERM}.{STRATEGY}.tsv",
+        cram = "data/cram/{SAMPLE}.cram",
+        idx = "data/cram/{SAMPLE}.cram.crai",
+    output:
+        mutations = "csv/index_hopping/{SAMPLE}.{PERM}.{STRATEGY}.tsv"
+    params:
+        threshold = 3
+    script:
+        "rules/scripts/test_index_hopping.py"
+   
