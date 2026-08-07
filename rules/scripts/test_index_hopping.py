@@ -15,6 +15,7 @@ cram = AlignmentFile(snakemake.input.cram, "rc")
 res = []
 for i, row in ma.iterrows():
     d = row.to_dict()
+    ref = d["ref"]
 
     read_info = get_read_info(
         cram,
@@ -25,7 +26,7 @@ for i, row in ma.iterrows():
     bases = Counter(r.base for r in read_info).most_common()
     alt_ct = 0
     if len(bases) > 1:
-        alt_ct = sum(b[1] for b in bases[1:])
+        alt_ct = sum(b[1] for b in bases if b[0] != ref)
     d = row.to_dict()
     d["alt_sample"] = snakemake.wildcards.SAMPLE
     alt_ev = "|".join([":".join(list(map(str, b))) for b in bases])

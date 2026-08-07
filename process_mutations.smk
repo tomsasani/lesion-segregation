@@ -4,15 +4,8 @@ import numpy as np
 
 # get ENA IDs and FTP links
 manifest = pd.read_csv("data/combined_file_manifest.tsv", sep="\t")
-manifest["filetype"] = manifest["is_bam"].apply(lambda b: "bam" if b else "cram")
-manifest["fq_ftp"] = manifest["fastq_ftp"].apply(lambda f: f.split(";")[0].split("_")[0])
 
-SAMPLE2FQPREF = dict(zip(manifest["Sample / DONOR ID"], manifest["fq_ftp"]))
 SAMPLE2ACC = dict(zip(manifest["Sample / DONOR ID"], manifest["run_accession"]))
-SAMPLE2CRAM = dict(zip(manifest["Sample / DONOR ID"], manifest["aligned_ftp"]))
-
-
-SAMPLE2FILETYPE = dict(zip(manifest["Sample / DONOR ID"], manifest["filetype"]))
 
 # filter to relevant samples
 metadata = pd.read_excel("data/41467_2020_15912_MOESM4_ESM.xlsx", 
@@ -35,15 +28,6 @@ for k,v in zip(metadata["Sample"], metadata["Normal"]):
     else:
         SAMPLE2NORMAL[k] = v
 
-raw_counts = pd.read_excel("data/41467_2020_15912_MOESM4_ESM.xlsx", 
-                         sheet_name="Mutation counts for all samples", 
-                         skiprows=1).rename(columns={"Unnamed: 0": "Sample"})
-raw_counts["total"] = np.sum(raw_counts.values[:, 1:97], axis=1)
-
-mutacc = metadata[metadata["Type"].str.contains("acc")]["Sample"].unique()
-# get mut. acc samples with relatively high counts
-SAMPLES_MA = raw_counts[raw_counts["Sample"].isin(mutacc)].query("total >= 25")["Sample"].to_list()
-
 SAMPLE2GT = dict(zip(metadata["Sample"], metadata["Genotype"]))
 
 configfile: 'config.yaml'
@@ -54,10 +38,6 @@ metadata = metadata[metadata["Drug.concentration"] != 0]
 metadata = metadata[metadata["Mutagen"].isin(mutagens)]
 metadata = metadata[metadata["Generation"] == 1]
 
-include: "rules/fastq2bam.smk"
-include: "rules/variant_calling.smk"
-include: "rules/test_index_hopping.smk"
-
 CHROMS = ["I", "II", "III", "IV", "V", "X"]
 CHROMS = [f"chr{c}" for c in CHROMS]
 
@@ -66,46 +46,19 @@ wildcard_constraints:
 
 SAMPLES = metadata["Sample"].to_list()
 
+include: "rules/fastq2bam.smk"
+# include: "rules/variant_calling.smk"
+include: "rules/downsampling.smk"
+include: "rules/generate_figures.smk"
 
 rule all:
     input:
-       
-        expand("csv/multiallelics/{SAMPLE}.{PERM}.{STRATEGY}.tsv", SAMPLE=SAMPLES, PERM=[100], STRATEGY=["regular"]),
+        #expand("csv/multiallelics/{SAMPLE}.{PERM}.{STRATEGY}.tsv", SAMPLE=SAMPLES, PERM=[20], STRATEGY=["original"]),
+        "fig/mutation_counts.png",
+        "fig/mosdepth.png",
+        expand("fig/{plot}.10.original.png", plot = ["n_reads", "n_reads_hist", "elbow", "mav_agg", "mav_grouped", "entropy", "phylop"])
         
 
-rule index_cram:
-    input:
-        cram = "data/cram/{SAMPLE}.cram"
-    output:
-        idx = "data/cram/{SAMPLE}.cram.crai"
-    threads: 8
-    resources:
-        mem_mb = 8_000,
-        runtime = 10,
-    shell:
-        """
-        module load samtools/1.16
-        
-        samtools index -@ {threads} {input.cram}
-        """
-
-rule run_mosdepth:
-    input:
-        cram = "data/cram/{SAMPLE}.cram",
-        idx = "data/cram/{SAMPLE}.cram.crai",
-        ref = "data/ref/ce11.fa.gz"
-    threads: 8
-    output: "csv/mosdepth/{SAMPLE}.mosdepth.summary.txt"
-    params:
-        prefix = lambda wildcards: f"csv/mosdepth/{wildcards.SAMPLE}"
-    shell:
-        """
-        mosdepth -t {threads} \
-                 -nx \
-                 -f {input.ref} \
-                 {params.prefix} \
-                 {input.cram}
-        """
 
 rule catalog_mutations:
     input:
@@ -143,95 +96,23 @@ rule combine_mutations:
         res.to_csv(output.mutations, sep="\t", index=False, header=True)
 
 
-rule plot_mutations:
-    input:
-        mutations = "csv/mutations/combined.tsv",
-        metadata = "data/41467_2020_15912_MOESM4_ESM.xlsx"
-    output:
-        fig = "fig/mutation_counts.png"
-    script:
-        "rules/scripts/plot_mutation_counts.py"
-
-
-def get_downsampling_frac(wildcards):
-    df = pd.read_csv(f"data/mosdepth/{wildcards.SAMPLE}.mosdepth.summary.txt", sep="\t")
-    df = df[df["chrom"] == "total"]
-    dp = df["mean"].values[0]
-
-    adj = 30 / dp
-    if adj > 1:
-        adj = dp
-    return adj
-
-
-rule downsample:
-    input:
-        cram = "data/cram/{SAMPLE}.cram",
-        idx = "data/cram/{SAMPLE}.cram.crai",
-        ref = "data/ref/ce11.fa.gz",
-        depth = "data/mosdepth/{SAMPLE}.mosdepth.summary.txt"
-    output:
-        cram = "data/cram/downsampled/{SAMPLE}.cram",
-        idx = "data/cram/downsampled/{SAMPLE}.cram.crai"
-    params:
-        downsampling_frac = lambda wildcards: get_downsampling_frac(wildcards)
-    threads: 8
-    shell:
-        """
-        module load samtools/1.16
-        
-        samtools view -O CRAM \
-                      --write-index \
-                      -C \
-                      -s {params.downsampling_frac} \
-                      -T {input.ref} \
-                      -@ {threads} \
-                      -o {output.cram} \
-                      {input.cram}
-        """
-
-
 rule find_multiallelics:
     input:
         mutations = "csv/mutations/combined.tsv",
-        bam = lambda wildcards: f"data/cram/downsampled/{wildcards.SAMPLE}.cram" if wildcards.STRATEGY == "downsample" else f"data/cram/{wildcards.SAMPLE}.cram",
-        idx = lambda wildcards: f"data/cram/downsampled/{wildcards.SAMPLE}.cram.crai" if wildcards.STRATEGY == "downsample" else f"data/cram/{wildcards.SAMPLE}.cram.crai",
+        bam = lambda wildcards: f"data/cram/downsampled/{wildcards.SAMPLE}.cram" if wildcards.STRATEGY == "downsampled" else f"data/cram/{wildcards.SAMPLE}.cram",
+        idx = lambda wildcards: f"data/cram/downsampled/{wildcards.SAMPLE}.cram.crai" if wildcards.STRATEGY == "downsampled" else f"data/cram/{wildcards.SAMPLE}.cram.crai",
         ctrl_bam = lambda wildcards: f"data/cram/{SAMPLE2NORMAL[wildcards.SAMPLE]}.cram",
-        ctrl_idx = lambda wildcards: f"data/cram/{SAMPLE2NORMAL[wildcards.SAMPLE]}.cram.crai"
+        ctrl_idx = lambda wildcards: f"data/cram/{SAMPLE2NORMAL[wildcards.SAMPLE]}.cram.crai",
+        util = "rules/scripts/utils.py"
     output:
         mutations = "csv/multiallelics/{SAMPLE}.{PERM}.{STRATEGY}.tsv"
     params:
         plot = False,
-        samples = lambda wildcards: [s for s in ALL_SAMPLES if SAMPLE2GT[s] != SAMPLE2GT[wildcards.SAMPLE]],
+        samples = lambda wildcards: [s for s in ALL_SAMPLES if SAMPLE2GT[s] != SAMPLE2GT[wildcards.SAMPLE] and s != wildcards.SAMPLE],
     resources:
-        runtime = 20
+        runtime = 60
     script:
         "rules/scripts/find_multiallelics.py"
-
-
-rule combine_multiallelics:
-    input:
-        mutations = expand("csv/multiallelics/{SAMPLE}.{{PERM}}.{{STRATEGY}}.tsv", SAMPLE=SAMPLES)
-    output: 
-        mutations = "csv/multiallelics.{PERM}.{STRATEGY}.tsv"
-    params:
-        threshold = 3
-    run:
-        import pandas as pd
-
-        res = []
-        for fh in input.mutations:
-            try:
-                df = pd.read_csv(fh, sep="\t")
-            except (pd.errors.EmptyDataError, FileNotFoundError):
-                continue
-            df = df[df["ma_reads"] > 1]
-            df = df[df["permuted"] == 0]
-            df["is_multiallelic"] = df["ma_reads"] >= params.threshold
-            res.append(df)
-
-        res = pd.concat(res)
-        res.to_csv(output.mutations, sep="\t", index=False)
 
 
 rule test_index_hopping:

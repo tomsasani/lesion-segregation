@@ -81,7 +81,7 @@ order = merged["mutagen"].unique()
 for gi, g in enumerate(order):
     raw = merged[merged["mutagen"] == g]["raw_count"].values[0]
     flt = merged[merged["mutagen"] == g]["mut_count"].values[0]
-    if g not in ("EMS", "MMS", "DMS", "UV", "Radiation"):
+    if g not in ("EMS", "MMS", "DMS"):
         continue
     ax2.text(
         raw + 0.15,

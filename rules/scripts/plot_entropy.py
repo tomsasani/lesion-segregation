@@ -10,6 +10,8 @@ import seaborn as sns
 import logomaker
 import itertools
 
+from snakemake.script import snakemake
+
 plt.rc("font", size=13)
 plt.rcParams["font.family"] = "sans-serif"
 plt.rcParams["font.sans-serif"] = ["Liberation Sans"]
@@ -29,28 +31,26 @@ def calc_entropy(r):
 
 
 ancestor = Ancestor(
-    "data/ref/ce11.fa.gz",
+    snakemake.input.ref,
     sequence_always_upper=True,
     k=K,
 )
 
-N_PERM = 250
 
-THRESHOLD = 3
 multiallelics = []
 regular = []
-for fh in tqdm.tqdm(glob.glob(f"csv/multiallelics/*.{N_PERM}.by_bam.tsv")):
+
+for fh in tqdm.tqdm(snakemake.input.mavs):
     try:
         df = pd.read_csv(fh, sep="\t")
     except pd.errors.EmptyDataError:
         continue
-    df["is_multiallelic"] = df["ma_reads"] >= THRESHOLD
+    df["is_multiallelic"] = df["ma_reads"] >= snakemake.params.threshold
     multiallelics.append(df[df["is_multiallelic"]])
     regular.append(df[(~df["is_multiallelic"]) & (df["permuted"] == 0)])
+
 multiallelics = pd.concat(multiallelics).fillna("N:0")
 regular = pd.concat(regular).fillna("N:0")
-# res = res[res["mutagen"].isin(["EMS", "DMS", "MMS"])]
-
 
 res = pd.concat([multiallelics, regular])
 
@@ -86,16 +86,12 @@ muts = pd.DataFrame(muts)
 
 muts["entropy"] = muts["refseq"].apply(lambda r: calc_entropy(r))
 
-muts["category"] = muts.apply(lambda row: "MAV (random)" if (row["is_multiallelic"] and row["permuted"] > 0) else "MAV (empirical)" if (row["is_multiallelic"] and row["permuted"] == 0) else "SNV (biallelic)", axis=1)
-
-print (muts[muts["category"] == "MAV (random)"].groupby(["chrom", "start", "end"]).size().sort_values())
-
-print (muts.groupby("category").size())
+muts["category"] = muts.apply(lambda row: "MAV (spurious)" if (row["is_multiallelic"] and row["permuted"] > 0) else "MAV (empirical)" if (row["is_multiallelic"] and row["permuted"] == 0) else "SNV (biallelic)", axis=1)
 
 bins = np.arange(muts["entropy"].min(), 2, 0.05)
 entropy = np.zeros((3, 100, bins.shape[0] - 1))
 
-categories = ["MAV (empirical)", "SNV (biallelic)", "MAV (random)"]
+categories = ["MAV (empirical)", "SNV (biallelic)", "MAV (spurious)"]
 bs = []
 for t in range(100):
     _muts = muts.sample(frac=1, replace=True)
@@ -133,58 +129,47 @@ ax.set_ylabel("Cumulative fraction of MAVs (+/- 95% CI)")
 ax.legend(title="Variant type", frameon=True, shadow=True, fancybox=True)
 sns.despine(ax=ax)
 f.tight_layout()
-f.savefig("entropy.png", dpi=200)
+f.savefig(snakemake.output.entropy, dpi=200)
 
-f, (ax1, ax2) = plt.subplots(2, figsize=(6, 8), sharex=True, sharey=True)
-seqs = muts[muts["category"] == "MAV (empirical)"]["refseq"].to_list()
+# f, (ax1, ax2) = plt.subplots(2, figsize=(6, 8), sharex=True, sharey=True)
+# seqs = muts[muts["category"] == "MAV (empirical)"]["refseq"].to_list()
 
-matrix = logomaker.transform_matrix(
-    logomaker.alignment_to_matrix(seqs), from_type="counts", to_type="probability"
-)
-logomaker.Logo(
-    matrix,
-    fade_probabilities=True,
-    # shade_below=0.5,
-    fade_below=0.25,
-    stack_order="small_on_top",
-    ax=ax1,
-)
+# matrix = logomaker.transform_matrix(
+#     logomaker.alignment_to_matrix(seqs), from_type="counts", to_type="probability"
+# )
+# logomaker.Logo(
+#     matrix,
+#     fade_probabilities=True,
+#     # shade_below=0.5,
+#     fade_below=0.25,
+#     stack_order="small_on_top",
+#     ax=ax1,
+# )
 
-seqs = muts[muts["category"] == "MAV (random)"]["refseq"].to_list()
+# seqs = muts[muts["category"] == "MAV (spurious)"]["refseq"].to_list()
 
-matrix = logomaker.transform_matrix(
-    logomaker.alignment_to_matrix(seqs), from_type="counts", to_type="probability"
-)
-logomaker.Logo(
-    matrix,
-    fade_probabilities=True,
-    # shade_below=0.5,
-    fade_below=0.25,
-    stack_order="small_on_top",
-    ax=ax2,
-)
-ax1.set_title("Sequence context surrounding MAVs\n(at true sites)")
-ax2.set_title("Sequence context surrounding MAVs\n(at random sites)")
-# ax1.axhline(0.64, c="k", ls=":", label="Average GC content genome-wide")
-# ax2.axhline(0.64, c="k", ls=":")
-for ax in (ax1, ax2):
-    sns.despine(ax=ax)
-    ax.set_xticks(np.arange(0, 21, 5))
-    ax.set_xticklabels(["-10", "-5", "0", "+5", "+10"])
-    ax.set_xlabel("Position relative to reference nucleotide")
-    ax.set_ylim(0, 1.1)
-# ax1.legend()
-f.tight_layout()
-f.savefig("logo.png", dpi=200)
-
-# f, ax = plt.subplots(figsize=(7, 6))
-# ax.hist(stats, label="Randomly sampled SNVs", ec="w", lw=1)
-# ax.axvline(ma["entropy"].mean(), label="Multiallelic SNVs", ls=":", c="k")
-# ax.legend(shadow=True)
-# ax.set_xlabel("Average sequence entropy\n" + "lower " + r"$\leftarrow$" + " complexity " + r"$\rightarrow$" + " higher")
-# ax.set_ylabel("Count")
-# p = np.sum(np.array(stats) <= ma["entropy"].mean()) / N_PERM
-# ax.set_title(f"Multiallelic SNVs have similar average sequence entropy\ncompared to randomly sampled SNVs (p = {p})")
-# sns.despine(ax=ax)
+# matrix = logomaker.transform_matrix(
+#     logomaker.alignment_to_matrix(seqs), from_type="counts", to_type="probability"
+# )
+# logomaker.Logo(
+#     matrix,
+#     fade_probabilities=True,
+#     # shade_below=0.5,
+#     fade_below=0.25,
+#     stack_order="small_on_top",
+#     ax=ax2,
+# )
+# ax1.set_title("Sequence context surrounding MAVs\n(at true sites)")
+# ax2.set_title("Sequence context surrounding MAVs\n(at random sites)")
+# # ax1.axhline(0.64, c="k", ls=":", label="Average GC content genome-wide")
+# # ax2.axhline(0.64, c="k", ls=":")
+# for ax in (ax1, ax2):
+#     sns.despine(ax=ax)
+#     ax.set_xticks(np.arange(0, 21, 5))
+#     ax.set_xticklabels(["-10", "-5", "0", "+5", "+10"])
+#     ax.set_xlabel("Position relative to reference nucleotide")
+#     ax.set_ylim(0, 1.1)
+# # ax1.legend()
 # f.tight_layout()
-# f.savefig('entropy.png', dpi=200)
+# f.savefig("fig/mavs.logo.png", dpi=200)
+

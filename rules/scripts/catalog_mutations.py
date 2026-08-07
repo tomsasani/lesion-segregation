@@ -74,6 +74,13 @@ for v in vcf:
         continue
     kmer = ">".join(kmer)
 
+    dp = 0
+    for direction in ("F", "R"):
+        for nuc in ("A", "T", "C", "G"):
+            _dp = v.format(f"{direction}{nuc}Z")[-1]
+            dp += _dp
+
+
     res.append(
         {
             "chrom": v.CHROM,
@@ -82,6 +89,7 @@ for v in vcf:
             "ref": ref,
             "alt": ":".join(v.ALT),
             "af": max(afs),
+            "dp": dp[0],
             "sample": snakemake.wildcards.SAMPLE,
             "genotype": sample_metadata["Genotype"].unique()[0],
             "mutagen": sample_metadata["Mutagen"].unique()[0],

@@ -136,3 +136,19 @@ rule convert_to_cram:
                       --output-fmt-option embed_ref=1 \
                       {input.bam}
         """
+
+rule index_cram:
+    input:
+        cram = "data/cram/{SAMPLE}.cram"
+    output:
+        idx = "data/cram/{SAMPLE}.cram.crai"
+    threads: 8
+    resources:
+        mem_mb = 8_000,
+        runtime = 10,
+    shell:
+        """
+        module load samtools/1.16
+        
+        samtools index -@ {threads} {input.cram}
+        """
