@@ -11,6 +11,8 @@ plt.rcParams["font.sans-serif"] = ["Liberation Sans"]
 N_PERM = int(snakemake.wildcards.PERM)
 
 res = pd.read_csv(snakemake.input.mavs, sep="\t")
+
+print (res[res["is_multiallelic"]])
 empirical = res[res["permuted"] == 0]
 
 # plot # of multiallelics remaining after applying various thresholds

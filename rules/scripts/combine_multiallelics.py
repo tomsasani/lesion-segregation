@@ -65,14 +65,14 @@ for i, fh in tqdm.tqdm(enumerate(snakemake.input.mavs)):
 # get strand bias
 sb = pd.concat(sb)
 
-chi2_vals = (
-    sb.groupby(["is_multiallelic", "is_strand_biased"])
-    .agg(total=("count", "sum"))
-    .reset_index()["total"]
-    .values.reshape((2, 2))
-)
-chi2 = ss.chi2_contingency(chi2_vals)
-print (chi2_vals, chi2.pvalue)
+# chi2_vals = (
+#     sb.groupby(["is_multiallelic", "is_strand_biased"])
+#     .agg(total=("count", "sum"))
+#     .reset_index()["total"]
+#     .values.reshape((2, 2))
+# )
+# chi2 = ss.chi2_contingency(chi2_vals)
+# print (chi2_vals, chi2.pvalue)
 
 # combine all MAVs with >0 evidence
 

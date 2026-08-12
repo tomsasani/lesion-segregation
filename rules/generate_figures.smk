@@ -83,7 +83,7 @@ rule annotate_with_phylop:
         mutations = "csv/mutations/combined.tsv",
         phylop_scores = "data/ce11.phyloP135way.bedg.gz"
     output:
-        phylop = "csv/mutations/combined.phylop.tsv"
+        tsv = "csv/mutations/combined.phylop.tsv"
     script:
         "scripts/annotate_with_phylop.py"
 

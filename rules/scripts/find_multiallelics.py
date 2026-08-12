@@ -166,7 +166,7 @@ for _perm in tqdm.tqdm(range(n_perm + 1)):
     # loop over mutations
     for it in sample_mutations.itertuples(index=False):
 
-        chrom, start, ref, alt = it.true_chrom, it.start, it.ref, it.alt
+        chrom, start, ref, alt = it.chrom, it.start, it.ref, it.alt
 
         focal_read_info = get_read_info(samfile, chrom, start, start + 1)
 
@@ -243,7 +243,7 @@ for _perm in tqdm.tqdm(range(n_perm + 1)):
                 "summary": base_count_summary,
                 "permuted": _perm,
                 "is_strand_biased": is_biased,
-                "bias": bias,
+                "bias": "|".join(bias),
                 "ma_reads": reads_supporting_ma,
             }
         )

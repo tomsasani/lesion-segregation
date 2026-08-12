@@ -64,7 +64,7 @@ for i, row in tqdm.tqdm(res.iterrows()):
             continue
 
         mutation = ancestor.mutation_type(
-            f'chr{row["chrom"]}',
+            row["chrom"],
             row["start"],
             ref,
             alt,
