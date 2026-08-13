@@ -1,86 +1,102 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-from snakemake.script import snakemake
 import numpy as np
-
-plt.rc("font", size=13)
-plt.rcParams["font.family"] = "sans-serif"
-plt.rcParams["font.sans-serif"] = ["Liberation Sans"]
+import argparse
 
 
-N_PERM = int(snakemake.wildcards.PERM)
+from snakemake_argparse_bridge import snakemake_compatible
 
-mav_counts = pd.read_csv(snakemake.input.counts, sep="\t")
+@snakemake_compatible(mapping={
+    'perm': 'wildcards.sample',
+    'counts': 'input.counts',
+    'metadata': 'input.metadata',
+    'group': 'params.group',
+    'out': 'output.grouped_mavs',
+})
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("-perm", default=100)
+    p.add_argument("--counts")
+    p.add_argument("--metadata")
+    p.add_argument("--out")
+    p.add_argument("-group", default="Mutagen")
 
+    args = p.parse_args()
 
-metadata = pd.read_excel(
-    snakemake.input.metadata,
-    sheet_name="Sample_description",
-    skiprows=1,
-)
+    plt.rc("font", size=13)
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["font.sans-serif"] = ["Liberation Sans"]
 
-mav_counts = mav_counts.merge(metadata, left_on="sample", right_on="Sample")
+    N_PERM = int(args.perm)
 
-group = snakemake.params.group
+    mav_counts = pd.read_csv(args.counts, sep="\t")
 
-
-print (mav_counts)
-f, ax = plt.subplots(figsize=(mav_counts[group].nunique() * 2, 5))
-
-palette = sns.color_palette("colorblind", mav_counts[group].nunique())
-
-enrichment = []
-
-rng = np.random.default_rng(42)
-
-order = []
-for gi, (g, group_df) in enumerate(mav_counts.groupby(group)):
-
-    tot = mav_counts[(mav_counts["permuted"] == 0) & (mav_counts[group] == g)][
-        "total"
-    ].sum()
-
-    multiallelics = group_df[group_df["is_multiallelic"]]
-
-    emp = multiallelics[multiallelics["permuted"] == 0].shape[0]
-    prm = (
-        multiallelics[multiallelics["permuted"] > 0]
-        .groupby("permuted")
-        .size()
-        .reset_index()
-        .rename(columns={0: "count"})
+    metadata = pd.read_excel(
+        args.metadata,
+        sheet_name="Sample_description",
+        skiprows=1,
     )
 
-    idx = pd.Index(list(range(N_PERM)))
-    prm = prm.set_index("permuted").reindex(idx, fill_value=0).reset_index()
-    prm_mean = np.mean(prm["count"].values) 
-    enrich = round((emp + 1) / (np.mean(prm["count"].values) + 1), 1)
+    mav_counts = mav_counts.merge(metadata, left_on="sample", right_on="Sample")
 
-    ax.scatter(
-        rng.normal(0, 0.125, size=prm.shape[0]) + gi,
-        (prm["count"].values / tot) * 100,
-        ec="w",
-        label="random strain" if gi == 0 else None,
-        color=palette[gi],
-    )
-    ax.scatter(
-        gi,
-        (emp / tot) * 100,
-        color="k",
-        marker="+",
-        s=100,
-        label="focal strain" if gi == 0 else None,
-    )
+    print (mav_counts)
 
-    order.append(f"{g}\n({tot:,} SNVs)")
+    group = args.group
 
-ax.set_xticks(range(len(order)))
-ax.set_ylabel("% of SNVs with multi-allelic read support")
-ax.set_xlabel(group)
-ax.set_xticklabels(order)
-ax.legend(shadow=True, title="Source of read evidence", loc="center")
-sns.despine(ax=ax)
+    f, ax = plt.subplots(figsize=(mav_counts[group].nunique() * 2, 5))
 
-f.tight_layout()
-f.savefig(snakemake.output.grouped_mavs, dpi=300)
+    palette = sns.color_palette("colorblind", mav_counts[group].nunique())
+
+    rng = np.random.default_rng(42)
+
+    order = []
+    for gi, (g, group_df) in enumerate(mav_counts.groupby(group)):
+
+        tot = mav_counts[(mav_counts["permuted"] == 0) & (mav_counts[group] == g)][
+            "total"
+        ].sum()
+        tot = group_df[(group_df["permuted"] == 0) & (group_df["is_multiallelic"])]["total"].sum()
+
+        multiallelics = group_df[group_df["is_multiallelic"]]
+
+        emp = multiallelics[multiallelics["permuted"] == 0]["count"].sum()
+        prm = (
+            multiallelics[multiallelics["permuted"] > 0]
+            .groupby("permuted")["count"]
+            .sum()
+        )
+
+        prm_mean = np.mean(prm.values) 
+        enrich = round((emp + 1) / (np.mean(prm.values) + 1), 1)
+
+        ax.scatter(
+            rng.normal(0, 0.125, size=prm.shape[0]) + gi,
+            (prm.values / tot) * 100,
+            ec="w",
+            label="random strain" if gi == 0 else None,
+            color=palette[gi],
+        )
+        ax.scatter(
+            gi,
+            (emp / tot) * 100,
+            color="k",
+            marker="+",
+            s=100,
+            label="focal strain" if gi == 0 else None,
+        )
+
+        order.append(f"{g}\n({tot:,} SNVs)")
+
+    ax.set_xticks(range(len(order)))
+    ax.set_ylabel("% of SNVs with multi-allelic read support")
+    ax.set_xlabel(group)
+    ax.set_xticklabels(order)
+    ax.legend(shadow=True, title="Source of read evidence", loc="center")
+    sns.despine(ax=ax)
+
+    f.tight_layout()
+    f.savefig(args.out, dpi=300)
+
+if __name__ == "__main__":
+    main()

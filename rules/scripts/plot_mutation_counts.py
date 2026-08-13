@@ -1,15 +1,8 @@
-import pysam
-from collections import Counter, defaultdict, namedtuple
 import numpy as np
 import pandas as pd
-from bx.intervals.intersection import Interval, IntervalTree
-import csv
-import tqdm
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.lines import Line2D
-import scipy.stats as ss
+
 
 plt.rc("font", size=13)
 plt.rcParams["font.family"] = "sans-serif"

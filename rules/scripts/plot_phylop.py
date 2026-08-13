@@ -1,10 +1,6 @@
-from cyvcf2 import VCF
 import numpy as np
 import pandas as pd
-import csv
-import tabix
 import matplotlib.pyplot as plt
-import tqdm
 import scipy.stats as ss
 import seaborn as sns
 import itertools

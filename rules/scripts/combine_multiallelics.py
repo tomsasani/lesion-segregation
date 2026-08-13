@@ -1,12 +1,6 @@
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import glob
-import numpy as np
 import tqdm
-import scipy.stats as ss
-import os
-from collections import Counter
+
 
 from snakemake.script import snakemake
 

@@ -1,6 +1,5 @@
 import pandas as pd
 import tqdm
-import glob
 from mutyper.ancestor import Ancestor
 from collections import Counter
 import numpy as np

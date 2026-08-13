@@ -46,49 +46,63 @@ with gzip.open(snakemake.input.exclude, "rt") as infh:
         exclude_tree[d["chrom"]].insert_interval(Interval(int(d["start"]), int(d["end"])))
 
 
+source = snakemake.params.var_source
+
 # loop over VCF for this sample
 for v in vcf:
+
     if v.var_type != "snp":
         continue
 
-    if v.FILTER not in ("PASS", None): continue
+    if v.FILTER not in ("PASS", None): 
+        continue
 
-    if len(exclude_tree[f"chr{v.CHROM}"].find(v.start, v.end)) > 0:
+    chrom = v.CHROM
+    if source == "caveman":
+        chrom = f"chr{v.CHROM}"
+
+    if len(exclude_tree[chrom].find(v.start, v.end)) > 0:
         continue
 
     ref = v.REF
     # NOTE: by counting each site twice at multi-alelics, am i double counting?
     passes = False
-    
-    af = v.format("VAF")[0][0]#[0]
+    if source == "deepsomatic":
+        af = v.format("VAF")[0][0]
+    elif source == "caveman":
+        af = v.format("PM")[1][0]
+    else:
+        raise AttributeError
         
     alt = v.ALT[0][0]
-    #if not passes: continue
-    # just pick one alt for the purposes of logging
-    # kmer = ancestor.mutation_type(f"chr{v.CHROM}", v.start, ref, alt)
-    kmer = ancestor.mutation_type(v.CHROM, v.start, ref, alt)
+
+    kmer = ancestor.mutation_type(chrom, v.start, ref, alt)
     if None in kmer:
         continue
     kmer = ">".join(kmer)
 
-    # dp = 0
-    # for direction in ("F", "R"):
-    #     for nuc in ("A", "T", "C", "G"):
-    #         _dp = v.format(f"{direction}{nuc}Z")[-1]
-    #         dp += _dp
-    dp = v.format("DP")[0]
-    # if len(v.ALT) > 1: continue
-    gq = v.gt_quals[0]
-    if gq < 20: continue
+    if source == "caveman":
+        dp = 0
+        for direction in ("F", "R"):
+            for nuc in ("A", "T", "C", "G"):
+                _dp = v.format(f"{direction}{nuc}Z")[-1]
+                dp += _dp
+    else:
+        dp = v.format("DP")[0]
+
+    if source == "deepsomatic":
+        gq = v.gt_quals[0]
+        if gq < 20: 
+            continue
+
     res.append(
         {
-            "chrom": v.CHROM,
+            "chrom": chrom,
             "start": v.start,
             "end": v.end,
             "ref": ref,
             "alt": ":".join(v.ALT),
-            "af": af,#max(afs),
-            "dp": dp[0],
+            "af": af,
             "sample": snakemake.wildcards.SAMPLE,
             "genotype": sample_metadata["Genotype"].unique()[0],
             "mutagen": sample_metadata["Mutagen"].unique()[0],
