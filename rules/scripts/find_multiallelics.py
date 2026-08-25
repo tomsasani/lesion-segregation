@@ -20,6 +20,13 @@ plt.rc("font", size=14)
 plt.rcParams["font.family"] = "sans-serif"
 plt.rcParams["font.sans-serif"] = ["Nimbus Sans"]
 
+IGV_PALETTE = [
+    "#FCA35C",
+    "#A5D2E3",
+    "#CF1E1F",
+    "#2871AC",
+    "#000000",
+]
 
 def plot(
     focal_read_info,
@@ -38,7 +45,7 @@ def plot(
     cmap = dict(
         zip(
             ["A", "C", "G", "T", "N"],
-            sns.color_palette("colorblind", 5),
+            IGV_PALETTE,
         )
     )
 
@@ -76,7 +83,13 @@ def plot(
                 zorder=-1,
                 solid_capstyle="round",
             )
-            ax.scatter(0, read_count, color=cmap[base], zorder=1)
+            ax.scatter(
+                0,
+                read_count,
+                color=cmap[base],
+                zorder=1,
+                s=75,
+            )
 
             read_count += 1
 
@@ -100,7 +113,7 @@ def plot(
                     [0],
                     label=f"{allele} ({d[allele]})",
                     marker="o",
-                    markersize=10,
+                    markersize=15,
                     markerfacecolor=color,
                     markeredgecolor="w",
                     linewidth=3,
@@ -128,13 +141,14 @@ mutations = pd.read_csv(snakemake.input.mutations, sep="\t")
 focal = mutations[mutations["sample"] == snakemake.wildcards.SAMPLE]
 
 n = focal.shape[0]
+# if the sample has no filtered mutations, output an empty dataframe
 if n == 0:
     pd.DataFrame().to_csv(snakemake.output.mutations, sep="\t", index=False)
     sys.exit()
 
-genotype = focal["genotype"].iloc[0]
-mutagen = focal["mutagen"].iloc[0]
-conc = focal["dose"].iloc[0]
+# genotype = focal["genotype"].iloc[0]
+# mutagen = focal["mutagen"].iloc[0]
+# conc = focal["dose"].iloc[0]
 
 res = []
 
@@ -154,20 +168,28 @@ for _perm in tqdm.tqdm(range(n_perm + 1)):
     # use a different strain's BAM file.
     bam_smp = snakemake.wildcards.SAMPLE
     samfile = AlignmentFile(snakemake.input.bam, "rc")
-    if _perm > 0:# and snakemake.wildcards.STRATEGY == "by_bam":
+    if _perm > 0:
         idx = rng.integers(0, len(snakemake.params.samples))
         bam_smp = snakemake.params.samples[idx]
         bam_fh = f"data/cram/{bam_smp}.cram"
         samfile = AlignmentFile(bam_fh, "rc")
-       
+
     sample_mutations = mutations[mutations["sample"] == snakemake.wildcards.SAMPLE].copy()
     sample_mutations.loc[:, "bam_smp"] = bam_smp
 
     # loop over mutations
     for it in sample_mutations.itertuples(index=False):
 
-        chrom, start, ref, alt = it.chrom, it.start, it.ref, it.alt
+        chrom, start, ref, alt = (
+            it.chrom,
+            it.start,
+            it.ref,
+            it.alt,
+        )
 
+        if ":" in alt:
+            alt = alt.split(":")[0]
+        
         focal_read_info = get_read_info(samfile, chrom, start, start + 1)
 
         # total number of reads cannot be outside thresholds
@@ -197,7 +219,7 @@ for _perm in tqdm.tqdm(range(n_perm + 1)):
                 continue
             fwd = strand_tallies[base]['fwd']
             rev = strand_tallies[base]['rev']
-            
+
             if fwd + rev == 0:
                 bias.append(f"{base}:0:0")
             else:
@@ -230,6 +252,7 @@ for _perm in tqdm.tqdm(range(n_perm + 1)):
         base_count_summary = "|".join(base_count_summary)
 
         reads_supporting_ma = 0
+        # get the minimum count of bases that don't support the reference
         if _perm == 0:
             if len(base_counts) > 2:
                 reads_supporting_ma = sum(c for b, c in base_counts if b not in (ref, alt))

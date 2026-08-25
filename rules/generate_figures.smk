@@ -4,6 +4,8 @@ rule plot_mutations:
         metadata = "data/41467_2020_15912_MOESM4_ESM.xlsx"
     output:
         fig = "fig/mutation_counts.png"
+    params:
+        mutagens = ["DMS", "EMS", "MMS"]
     script:
         "scripts/plot_mutation_counts.py"
 
@@ -13,7 +15,8 @@ rule combine_candidate_multiallelics:
         mavs = expand("csv/multiallelics/{SAMPLE}.{{PERM}}.{{STRATEGY}}.tsv", SAMPLE=SAMPLES),
         metadata = "data/41467_2020_15912_MOESM4_ESM.xlsx"
     output:
-        mavs = "csv/multiallelics.{PERM}.{STRATEGY}.tsv",
+        mavs_raw = "csv/multiallelics.{PERM}.{STRATEGY}.tsv",
+        mavs_filt = "csv/multiallelics.{PERM}.{STRATEGY}.filtered.tsv",
         counts = "csv/counts.{PERM}.{STRATEGY}.tsv"
     params:
         threshold = 3
@@ -90,7 +93,9 @@ rule annotate_with_phylop:
 
 rule plot_phylop:
     input:
-        mutations = "csv/mutations/combined.phylop.tsv"
+        mutations = "csv/mutations/combined.phylop.tsv",
+        metadata = "data/41467_2020_15912_MOESM4_ESM.xlsx"
+
     output:
         phylop = "fig/phylop.png"
     params:
@@ -101,7 +106,7 @@ rule plot_phylop:
 
 rule plot_mosdepth:
     input:
-        summaries = expand("data/mosdepth/{SAMPLE}.mosdepth.summary.txt", SAMPLE=SAMPLES),
+        summaries = expand("csv/mosdepth/{SAMPLE}.mosdepth.summary.txt", SAMPLE=SAMPLES),
         manifest = "data/combined_file_manifest.tsv",
         mutations = "csv/mutations/combined.tsv",
         metadata =  "data/41467_2020_15912_MOESM4_ESM.xlsx"
@@ -110,3 +115,17 @@ rule plot_mosdepth:
     script:
         "scripts/plot_mosdepth.py"
 
+
+rule export_mav_csv:
+    input:
+        mavs = "csv/multiallelics.{PERM}.{STRATEGY}.tsv"
+    output:
+        mavs = "csv/filtered/multiallelics.{PERM}.{STRATEGY}.tsv"
+    run:
+        import pandas as pd
+
+        df = pd.read_csv(input.mavs, sep="\t")
+
+        df = df[(df["permuted"] == 0) & (df["is_multiallelic"])]
+
+        df.to_csv(output.mavs, sep="\t", index=False)

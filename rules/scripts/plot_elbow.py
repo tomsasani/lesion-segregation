@@ -12,8 +12,8 @@ N_PERM = int(snakemake.wildcards.PERM)
 
 res = pd.read_csv(snakemake.input.mavs, sep="\t")
 
-print (res[res["is_multiallelic"]])
 empirical = res[res["permuted"] == 0]
+permuted = res[res["permuted"] != 0]
 
 # plot # of multiallelics remaining after applying various thresholds
 f, ax = plt.subplots()
@@ -21,7 +21,6 @@ ax2 = ax.twinx()
 thresholds = range(1, 6)
 o = []
 
-permuted = res[res["permuted"] != 0]
 for t in thresholds:
     mas = empirical[empirical["ma_reads"] >= t].shape[0]
     perm_mas = (
@@ -31,8 +30,8 @@ for t in thresholds:
         .reset_index()
         .rename(columns={0: "count"})
     )
-
-    mux = pd.Index(list(range(N_PERM + 1)))
+    # fill in potential 0 counts
+    mux = pd.Index(list(range(1, N_PERM + 1)))
     perm_mas = perm_mas.set_index("permuted").reindex(mux, fill_value=0).reset_index()
     perm_mas = perm_mas["count"].values
     odds_ratio = mas / np.mean(perm_mas)

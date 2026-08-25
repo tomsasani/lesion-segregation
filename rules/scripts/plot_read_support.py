@@ -11,7 +11,6 @@ plt.rcParams["font.sans-serif"] = ["Liberation Sans"]
 
 res = pd.read_csv(snakemake.input.mavs, sep="\t")
 
-
 f, ax = plt.subplots(figsize=(4, 6))
 res["empirical"] = res["permuted"].apply(lambda p: "focal strain" if p == 0 else "random strain")
 sns.stripplot(
@@ -43,9 +42,11 @@ f, ax = plt.subplots(figsize=(5, 6))
 for cat, cat_df in res[res["is_multiallelic"]].groupby("empirical"):
     if cat == "focal strain":
         ax.axvline(cat_df["ma_reads"].mean(), label="focal strain", ls=":", c="k")
+        print (cat_df["ma_reads"].mean())
     else:
         vals = cat_df.groupby("permuted")["ma_reads"].mean()
-        ax.hist(vals, bins=np.arange(3, 8), ec="w", lw=1, label="random strain", color=sns.color_palette("colorblind", 1)[0])
+        print (vals.mean())
+        ax.hist(vals, bins=np.arange(3, 15), ec="w", lw=1, label="random strain", color=sns.color_palette("colorblind", 1)[0])
 ax.set_xlabel("Average # of reads supporting\n'extra' allele")
 ax.set_ylabel("# of trials")
 ax.legend(title="Source of read evidence", shadow=True)

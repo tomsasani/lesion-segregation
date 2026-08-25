@@ -1,9 +1,9 @@
 import pandas as pd
 import tqdm
 
-
 from snakemake.script import snakemake
 
+# read in metadata
 metadata = pd.read_excel(
     snakemake.input.metadata,
     sheet_name="Sample_description",
@@ -18,10 +18,13 @@ N_PERM = int(snakemake.wildcards.PERM)
 
 for i, fh in tqdm.tqdm(enumerate(snakemake.input.mavs)):
     sample = fh.split("/")[-1].split(".")[0]
+
+    # some files may be empty if there weren't any SNVs to begin with
     try:
         df = pd.read_csv(fh, sep="\t", dtype={"sample_id": str})
     except (pd.errors.EmptyDataError, FileNotFoundError):
         continue
+
 
     df["is_multiallelic"] = df["ma_reads"] >= snakemake.params.threshold
 
@@ -51,34 +54,51 @@ for i, fh in tqdm.tqdm(enumerate(snakemake.input.mavs)):
         .reset_index()
     )
     mav_counts.append(counts)
-
+    
+    # append MAVs with at least 1 read of evidence 
     df = df[df["ma_reads"] > 0]
     res.append(df)
-
 
 # get strand bias
 sb = pd.concat(sb)
 
-# chi2_vals = (
-#     sb.groupby(["is_multiallelic", "is_strand_biased"])
-#     .agg(total=("count", "sum"))
-#     .reset_index()["total"]
-#     .values.reshape((2, 2))
-# )
-# chi2 = ss.chi2_contingency(chi2_vals)
-# print (chi2_vals, chi2.pvalue)
-
-# combine all MAVs with >0 evidence
+chi2_vals = (
+    sb.groupby(["is_multiallelic", "is_strand_biased"])
+    .agg(total=("count", "sum"))
+    .reset_index()["total"]
+    .values.reshape((2, 2))
+)
+chi2 = ss.chi2_contingency(chi2_vals)
+print (chi2_vals, chi2.pvalue)
 
 res = pd.concat(res).fillna("N:0")
 res = res.merge(metadata, left_on="sample", right_on="Sample")
 
-res.to_csv(snakemake.output.mavs, sep="\t", index=False)
+res.to_csv(snakemake.output.mavs_raw, sep="\t", index=False)
+
+OUT_COLS = [
+    "chrom",
+    "start",
+    "end",
+    "ref",
+    "af",
+    "sample",
+    "ident",
+    "bam_smp",
+    "is_strand_biased",
+    "summary",
+    "ma_reads",
+    "Genotype",
+    "Mutagen",
+    "Drug.concentration",
+]
+
+
+res[(res["ma_reads"] >= snakemake.params.threshold) & (res["permuted"] == 0)][
+    OUT_COLS
+].sort_values(["chrom", "start", "end"]).to_csv(
+    snakemake.output.mavs_filt, sep="\t", index=False
+)
 
 mav_counts = pd.concat(mav_counts)
-mav_totals = (
-    mav_counts.groupby(["sample", "permuted"]).agg(total=("count", "sum")).reset_index()
-)
-mav_counts = mav_counts.merge(mav_totals)
-
 mav_counts.to_csv(snakemake.output.counts, sep="\t", index=False)

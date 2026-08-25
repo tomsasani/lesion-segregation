@@ -1,12 +1,6 @@
 import pandas as pd
 from cyvcf2 import VCF
-import matplotlib.pyplot as plt
-import tqdm
-import numpy as np
-import seaborn as sns
-import glob
-import ruptures as rpt
-import os
+
 from global_vars import MUT2EXP, REVCOMP
 
 from snakemake.script import snakemake
@@ -31,7 +25,7 @@ for chrom, chrom_df in mutations.groupby("chrom"):
     chrom_df_with_strand = []
 
     for i, row in chrom_df.iterrows():
-        d = row.to_dic()
+        d = row.to_dict()
         # determine the strand of this mutation.
         # 0 if the REF matches the watson starnd, 1 if it matches crick
         strand = 0 if row["ref"] == exp_watson else 1 if row["ref"] == exp_crick else -1

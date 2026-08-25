@@ -13,8 +13,14 @@ plt.rcParams["font.sans-serif"] = ["Liberation Sans"]
 
 
 res = pd.read_csv(snakemake.input.mutations, sep="\t")
+metadata = pd.read_excel(
+    snakemake.input.metadata,
+    sheet_name="Sample_description",
+    skiprows=1,
+)
+res = res.merge(metadata, left_on="sample", right_on="Sample")
 
-res = res[res["mutagen"].isin(snakemake.params.mutagens)]
+res = res[res["Mutagen"].isin(snakemake.params.mutagens)]
 
 _min, _max = res["phylop"].min(), res["phylop"].max()
 f, ax = plt.subplots()
@@ -22,7 +28,7 @@ bins = np.arange(_min, _max, 0.01)
 
 out = []
 
-for mutagen, mutagen_df in res.groupby("mutagen"):
+for mutagen, mutagen_df in res.groupby("Mutagen"):
     scores = mutagen_df["phylop"]
     tot = scores.shape[0]
 

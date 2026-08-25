@@ -21,42 +21,53 @@ raw_counts["count"] = np.sum(raw_counts.values[:, 1:99], axis=1)
 
 metadata = pd.read_excel(
     snakemake.input.metadata, sheet_name="Sample_description", skiprows=1
-).fillna({"Normal": "CD0001b", "Mutagen": "none", "Drug.concentration": -1})
+).fillna(
+    {
+        "Normal": "CD0001b",
+        "Mutagen": "none",
+        "Drug.concentration": -1,
+    }
+)
 
-metadata["mutagen"] = metadata.apply(
+metadata["Mutagen"] = metadata.apply(
     lambda row: row["Mutagen"] if row["Type"] != "mut.acc." else "None (M.A.)", axis=1
 )
 
 # merge raw counts with metadata
 raw_counts = raw_counts.merge(metadata)
 raw_counts = raw_counts[
-    (raw_counts["mutagen"] == "None (M.A.)")
+    (raw_counts["Mutagen"] == "None (M.A.)")
     | (
-        (raw_counts["mutagen"] != "None (M.A.)")
+        (raw_counts["Mutagen"] != "None (M.A.)")
         & (raw_counts["Drug.concentration"] != 0)
     )
 ]
-print(raw_counts[raw_counts["mutagen"] == "Mitomycin"])
-raw_counts = raw_counts.groupby("mutagen").agg(raw_count=("count", "sum")).reset_index()
 
-mutations = pd.read_csv(snakemake.input.mutations, sep="\t").fillna(
-    {"mutagen": "None (M.A.)"}
-)
+raw_counts = raw_counts.groupby("Mutagen").agg(raw_count=("count", "sum")).reset_index()
+
+mutations = pd.read_csv(snakemake.input.mutations, sep="\t")
+mutations = mutations.merge(
+    metadata, left_on="sample", right_on="Sample"
+).fillna({"Mutagen": "None (M.A.)"})
 
 # remove mutations in mutagen treated strains if dose is 0
 mutations = mutations[
-    (mutations["mutagen"] == "None (M.A.)")
-    | ((mutations["mutagen"] != "None (M.A.)") & (mutations["dose"] != 0))
+    (mutations["Mutagen"] == "None (M.A.)")
+    | (
+        (mutations["Mutagen"] != "None (M.A.)")
+        & (mutations["Drug.concentration"] != 0)
+        & (mutations["Generation"] == 1)
+    )
 ]
 
 # count number of strains treated with each mutagen
 strain_counts = (
-    metadata.groupby("mutagen").size().reset_index().rename(columns={0: "strain_count"})
+    metadata.groupby("Mutagen").size().reset_index().rename(columns={0: "strain_count"})
 )
 
 # count up mutations in every strain
 counts = (
-    mutations.groupby(["mutagen"]).size().reset_index().rename(columns={0: "mut_count"})
+    mutations.groupby(["Mutagen"]).size().reset_index().rename(columns={0: "mut_count"})
 )
 merged = strain_counts.merge(counts)
 
@@ -66,15 +77,15 @@ merged["mut_count"] /= 10**4
 merged["raw_count"] /= 10**4
 
 
-merged = merged[merged["mutagen"] != "MMS/EMS/DMS"]
+merged = merged[merged["Mutagen"] != "MMS/EMS/DMS"]
 
 f, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 6), sharey=True)
 
-order = merged["mutagen"].unique()
+order = merged["Mutagen"].unique()
 for gi, g in enumerate(order):
-    raw = merged[merged["mutagen"] == g]["raw_count"].values[0]
-    flt = merged[merged["mutagen"] == g]["mut_count"].values[0]
-    if g not in ("EMS", "MMS", "DMS"):
+    raw = merged[merged["Mutagen"] == g]["raw_count"].values[0]
+    flt = merged[merged["Mutagen"] == g]["mut_count"].values[0]
+    if g not in snakemake.params.mutagens:
         continue
     ax2.text(
         raw + 0.15,
@@ -85,11 +96,11 @@ for gi, g in enumerate(order):
 sns.barplot(
     data=merged,
     order=order,
-    y="mutagen",
+    y="Mutagen",
     x="strain_count",
     ax=ax1,
     orient="h",
-    hue="mutagen",
+    hue="Mutagen",
     ec="k",
     lw=1,
     palette="colorblind",
@@ -97,11 +108,11 @@ sns.barplot(
 sns.barplot(
     data=merged,
     order=order,
-    y="mutagen",
+    y="Mutagen",
     x="raw_count",
     ax=ax2,
     orient="h",
-    hue="mutagen",
+    hue="Mutagen",
     alpha=0.75,
     ec="w",
     lw=0,
@@ -110,11 +121,11 @@ sns.barplot(
 sns.barplot(
     data=merged,
     order=order,
-    y="mutagen",
+    y="Mutagen",
     x="mut_count",
     ax=ax2,
     orient="h",
-    hue="mutagen",
+    hue="Mutagen",
     ec="k",
     lw=1,
     palette="colorblind",

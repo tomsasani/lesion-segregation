@@ -19,18 +19,20 @@ metadata = pd.read_excel(
 
 mav_counts = mav_counts.merge(metadata, left_on="sample", right_on="Sample")
 
+# filter to the multiallelics
 mav_counts = mav_counts[mav_counts["is_multiallelic"]]
-_ma_counts = mav_counts.groupby("permuted").agg(ma=("count", "sum")).reset_index()
+# get counts of MAVs in each permutation trial
+perm_ma_counts = mav_counts.groupby("permuted").agg(n_mavs=("count", "sum")).reset_index()
 
 f, ax = plt.subplots()
 
 k = "count"
-_ma_counts["is_empirical"] = _ma_counts["permuted"] == 0
-_min, _max = _ma_counts["ma"].min(), _ma_counts["ma"].max()
-bins = np.linspace(_min, _ma_counts[_ma_counts["is_empirical"]]["ma"].values[0], 100)
+perm_ma_counts["is_empirical"] = perm_ma_counts["permuted"] == 0
+_min, _max = perm_ma_counts["n_mavs"].min(), perm_ma_counts["n_mavs"].max()
 bins = np.linspace(_min, _max, 100)
+
 ax.hist(
-    _ma_counts[~_ma_counts["is_empirical"]]["ma"].values,
+    perm_ma_counts[~perm_ma_counts["is_empirical"]]["n_mavs"].values,
     ec="k",
     lw=1,
     bins=bins,
@@ -38,7 +40,7 @@ ax.hist(
     color="gainsboro",
 )
 ax.axvline(
-    _ma_counts[_ma_counts["is_empirical"]]["ma"].values[0],
+    perm_ma_counts[perm_ma_counts["is_empirical"]]["n_mavs"].values[0],
     ls=":",
     c="k",
     label="focal strain",

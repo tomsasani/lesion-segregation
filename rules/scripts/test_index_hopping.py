@@ -8,7 +8,7 @@ from collections import Counter
 
 mutations = pd.read_csv(snakemake.input.mutations, sep="\t")
 # get multiallelics
-ma = mutations[mutations["is_multiallelic"]]
+ma = mutations[(mutations["is_multiallelic"]) & (mutations["permuted"] == 0)]
 
 cram = AlignmentFile(snakemake.input.cram, "rc")
 
@@ -19,7 +19,7 @@ for i, row in ma.iterrows():
 
     read_info = get_read_info(
         cram,
-        row["true_chrom"],
+        row["chrom"],
         row["start"],
         row["end"],
     )
