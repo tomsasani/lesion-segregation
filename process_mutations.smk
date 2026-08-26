@@ -61,7 +61,7 @@ rule all:
         "fig/mutation_counts.png",
         "fig/mosdepth.png",
         "fig/phylop.png",
-        expand("fig/{plot}.10.original.png", plot = ["n_reads", "n_reads_hist", "elbow", "mav_agg", "mav_grouped", "entropy"])
+        expand("fig/{plot}.100.original.png", plot = ["n_reads", "n_reads_hist", "elbow", "mav_agg", "mav_grouped", "entropy"])
         
 
 rule catalog_mutations:
