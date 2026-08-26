@@ -1,8 +1,8 @@
-## Transgenerational effects of DNA damage in *C. elegans*
+## Inherited DNA damage in *C. elegans*
 
 authors: Thomas A. Sasani
 
-> This repository contains the necessary code to reproduce figures and analyses in "Transgenerational effects of DNA damage in *C. elegans*," Sasani et al. (2026) *bioRxiv*.
+> This repository contains the necessary code to reproduce figures and analyses in "Inherited DNA damage generates multi-allelic mutations in *C. elegans*," Sasani et al. (2026) *bioRxiv*.
 
 ### Prerequisites
 
