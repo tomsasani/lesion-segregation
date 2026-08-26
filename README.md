@@ -9,7 +9,7 @@ authors: Thomas A. Sasani
 #### Clone the repo
 
 ```
-git clone https://github.com/quinlan-lab/lesion-segregation
+git clone https://github.com/tomsasani/lesion-segregation
 ```
 
 #### `python` dependencies
