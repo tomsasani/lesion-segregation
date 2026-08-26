@@ -43,8 +43,8 @@ rules/
     bash_scripts/ # bash scripts for alignment/variant calling/etc.
 
 csv/
-    per-sample/ # filtered SNVs in each strain
-    multiallelics/ # MAVs identified in each strain
+    mutations/combined.tsv # filtered SNVs in each strain
+    multiallelics.filtered.tsv # MAVs identified in each strain
 
 igv_reports/
     html/ # interactive IGV HTML for every MAV, including reads aligned to the MAV +/- 1kbp in the treated sample and a control
@@ -58,7 +58,7 @@ It's also possible to run the entire pipeline from scratch (downloading FASTQ, a
 
 #### Mutation file format
 
-Filtered per-strain SNVs are provided in TSV format as follows (example below for strain `CD0001a`):
+Filtered per-strain SNVs are provided in TSV format as follows:
 
 ```
 chrom	start	end	ref	alt	af	sample
@@ -66,7 +66,7 @@ chrIV	13008199	13008200	G	T	0.5	CD0001a
 chrV	19417290	19417291	C	T	1.0	CD0001a
 ```
 
-Per-strain multi-allelic evidence is provided in TSV format as follows (example below for strain `CD0230d`):
+Per-strain multi-allelic evidence is provided in TSV format as follows:
 
 ```
 chrom	start	end	ref	af	sample	ident	bam_smp	summary	permuted	is_strand_biased	bias	ma_reads
